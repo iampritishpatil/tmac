@@ -7,10 +7,24 @@ def softplus(x, beta=50):
     return np.log(1 + np.exp(beta * x)) / beta
 
 
-def generate_synthetic_data(num_ind, num_neurons, mean_r, mean_g, variance_noise_r, variance_noise_g,
-                            variance_a, variance_m, tau_a, tau_m,
-                            frac_nan=0.0, beta=20, multiplicative=False, rng_seed=None):
-    """ Function that generates synthetic two channel imaging data
+def generate_synthetic_data(
+    num_ind,
+    num_neurons,
+    mean_r,
+    mean_g,
+    variance_noise_r,
+    variance_noise_g,
+    variance_a,
+    variance_m,
+    tau_a,
+    tau_m,
+    frac_nan=0.0,
+    beta=20,
+    multiplicative=False,
+    rng_seed=None,
+    photo_tau=False,
+):
+    """Function that generates synthetic two channel imaging data
 
     Args:
         num_ind: number of measurements in time
@@ -38,11 +52,37 @@ def generate_synthetic_data(num_ind, num_neurons, mean_r, mean_g, variance_noise
     fourier_basis, frequency_vec = tfo.get_fourier_basis(num_ind)
 
     # get the diagonal of radial basis kernel in fourier space
-    c_diag_a = variance_a * tau_a * np.sqrt(2 * np.pi) * np.exp(-0.5 * frequency_vec**2 * tau_a**2)
-    c_diag_m = variance_m * tau_m * np.sqrt(2 * np.pi) * np.exp(-0.5 * frequency_vec**2 * tau_m**2)
+    c_diag_a = (
+        variance_a
+        * tau_a
+        * np.sqrt(2 * np.pi)
+        * np.exp(-0.5 * frequency_vec**2 * tau_a**2)
+    )
+    c_diag_m = (
+        variance_m
+        * tau_m
+        * np.sqrt(2 * np.pi)
+        * np.exp(-0.5 * frequency_vec**2 * tau_m**2)
+    )
 
-    a = fourier_basis @ (np.sqrt(c_diag_a[:, None]) * rng.standard_normal((num_ind, num_neurons)))
-    m = fourier_basis @ (np.sqrt(c_diag_m[:, None]) * rng.standard_normal((num_ind, num_neurons)))
+    a = fourier_basis @ (
+        np.sqrt(c_diag_a[:, None]) * rng.standard_normal((num_ind, num_neurons))
+    )
+    m = fourier_basis @ (
+        np.sqrt(c_diag_m[:, None]) * rng.standard_normal((num_ind, num_neurons))
+    )
+    # add some frames with large sparse motion artifacts
+    num_sparse_motion = int(0.03 * num_ind)
+    sparse_motion_inds = rng.choice(num_ind, size=num_sparse_motion, replace=False)
+    for ind in sparse_motion_inds:
+        # neuron_inds = \
+        m[ind, :] -= rng.uniform(-1, 1, size=(num_neurons,))
+        j = 0
+        while rng.uniform() < 0.5:
+            m[ind + j, :] -= rng.uniform(-0.5, 0.5, size=(num_neurons,))
+            j += 1
+            if ind + j >= num_ind:
+                break
 
     # keep a and m from being negative for the multiplicative model
     # a has mean 1, m has mean 0
@@ -60,14 +100,18 @@ def generate_synthetic_data(num_ind, num_neurons, mean_r, mean_g, variance_noise
         green_true = mean_g * softplus(a + m + noise_g, beta=beta)
 
     # add photobleaching
-    photo_tau = num_ind / 3
-    red_bleached = red_true * np.exp(-np.arange(num_ind)[:, None] / photo_tau)
-    green_bleached = green_true * np.exp(-np.arange(num_ind)[:, None] / photo_tau)
+    if photo_tau is True:
+        photo_tau = num_ind / 3
+        decay = np.exp(-np.arange(num_ind)[:, None] / photo_tau)
+    elif photo_tau is False:
+        decay = 1.0
+    red_bleached = red_true * decay
+    green_bleached = green_true * decay
 
     # nan a few values
-    ind_to_nan = rng.random(num_ind) <= frac_nan
-    red_bleached[ind_to_nan, :] = np.array('nan')
-    green_bleached[ind_to_nan, :] = np.array('nan')
+    ind_to_nan = rng.random(num_ind) < frac_nan
+    red_bleached[ind_to_nan, :] = np.array("nan")
+    green_bleached[ind_to_nan, :] = np.array("nan")
 
     return red_bleached, green_bleached, a, m
 
@@ -94,8 +138,8 @@ def ratio_model(red, green, tau):
     num_filter_ind = np.round(tau * num_std) * 2 + 1
     filter_x = np.arange(num_filter_ind) - (num_filter_ind - 1) / 2
     filter_shape = stats.norm.pdf(filter_x / tau) / tau
-    green_filtered = signal.convolve2d(green, filter_shape[:, None], 'same')
-    red_filtered = signal.convolve2d(red, filter_shape[:, None], 'same')
+    green_filtered = signal.convolve2d(green, filter_shape[:, None], "same")
+    red_filtered = signal.convolve2d(red, filter_shape[:, None], "same")
     ratio = green_filtered / red_filtered - 1
 
     return ratio

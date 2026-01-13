@@ -3,10 +3,22 @@ import numpy as np
 import tmac.fourier as tfo
 
 
-def tmac_evidence_and_posterior(r, fourier_r, log_variance_r_noise, g, fourier_g, log_variance_g_noise,
-                                log_variance_a, log_tau_a, log_variance_m, log_tau_m,
-                                threshold=1e8, calculate_posterior=False, truncate_freq=True):
-    """ Two-channel motion artifact correction (TMAC) evidence and posterior distribution
+def tmac_evidence_and_posterior(
+    r,
+    fourier_r,
+    log_variance_r_noise,
+    g,
+    fourier_g,
+    log_variance_g_noise,
+    log_variance_a,
+    log_tau_a,
+    log_variance_m,
+    log_tau_m,
+    threshold=1e8,
+    calculate_posterior=False,
+    truncate_freq=True,
+):
+    """Two-channel motion artifact correction (TMAC) evidence and posterior distribution
 
     Args:
         r: red channel
@@ -52,7 +64,7 @@ def tmac_evidence_and_posterior(r, fourier_r, log_variance_r_noise, g, fourier_g
     min_length = torch.min(length_scale_a.detach(), length_scale_m.detach())
 
     if truncate_freq:
-        max_freq = 2*np.log(threshold) / min_length**2
+        max_freq = 2 * np.log(threshold) / min_length**2
         frequencies_to_keep = all_freq**2 < max_freq
     else:
         frequencies_to_keep = np.full(all_freq.shape, True)
@@ -62,10 +74,18 @@ def tmac_evidence_and_posterior(r, fourier_r, log_variance_r_noise, g, fourier_g
     cutoff = torch.tensor(1 / threshold, device=device, dtype=dtype)
 
     # compute the diagonals of the covariances in fourier space
-    covariance_a_fft = torch.maximum(torch.exp(-0.5 * freq**2 * length_scale_a**2), cutoff)
-    covariance_a_fft = variance_a * (length_scale_a * np.sqrt(2 * np.pi)) * covariance_a_fft
-    covariance_m_fft = torch.maximum(torch.exp(-0.5 * freq**2 * length_scale_m**2), cutoff)
-    covariance_m_fft = variance_m * (length_scale_m * np.sqrt(2 * np.pi)) * covariance_m_fft
+    covariance_a_fft = torch.maximum(
+        torch.exp(-0.5 * freq**2 * length_scale_a**2), cutoff
+    )
+    covariance_a_fft = (
+        variance_a * (length_scale_a * np.sqrt(2 * np.pi)) * covariance_a_fft
+    )
+    covariance_m_fft = torch.maximum(
+        torch.exp(-0.5 * freq**2 * length_scale_m**2), cutoff
+    )
+    covariance_m_fft = (
+        variance_m * (length_scale_m * np.sqrt(2 * np.pi)) * covariance_m_fft
+    )
 
     f11 = 1 / covariance_a_fft + variance_g_noise_inv
     f22 = 1 / covariance_m_fft + variance_r_noise_inv + variance_g_noise_inv
@@ -79,8 +99,11 @@ def tmac_evidence_and_posterior(r, fourier_r, log_variance_r_noise, g, fourier_g
     f22_inv = 1 / f22 + f12**2 / f22**2 / k
     f12_inv = -f12 / f22 / k
 
-    log_det_term = -(torch.log(f_det).sum() + torch.log(covariance_a_fft * covariance_m_fft).sum() +
-                     t_max*torch.log(variance_g_noise*variance_r_noise))
+    log_det_term = -(
+        torch.log(f_det).sum()
+        + torch.log(covariance_a_fft * covariance_m_fft).sum()
+        + t_max * torch.log(variance_g_noise * variance_r_noise)
+    )
 
     # compute the quadratic term
     fourier_r_trimmed = fourier_r[frequencies_to_keep]
@@ -94,7 +117,11 @@ def tmac_evidence_and_posterior(r, fourier_r, log_variance_r_noise, g, fourier_g
     f_quad_mult_1 = normalized_g_fft
     f_quad_mult_2 = normalized_r_fft + normalized_g_fft
 
-    f_quad = (f11_inv * f_quad_mult_1**2).sum() + (f22_inv * f_quad_mult_2**2).sum() + 2 * (f12_inv * f_quad_mult_1 * f_quad_mult_2).sum()
+    f_quad = (
+        (f11_inv * f_quad_mult_1**2).sum()
+        + (f22_inv * f_quad_mult_2**2).sum()
+        + 2 * (f12_inv * f_quad_mult_1 * f_quad_mult_2).sum()
+    )
 
     quad_term = -(auto_corr_term - f_quad)
 
@@ -113,8 +140,40 @@ def tmac_evidence_and_posterior(r, fourier_r, log_variance_r_noise, g, fourier_g
         m_hat = tfo.real_ifft(m_padded)
         a_hat = tfo.real_ifft(a_padded)
 
-        return a_hat+1, m_hat
+        return a_hat + 1, m_hat
 
     else:
         return torch.mean(obj)
 
+
+def tmac_evidence_and_posterior_fixed_taus(
+    r,
+    fourier_r,
+    log_variance_r_noise,
+    g,
+    fourier_g,
+    log_variance_g_noise,
+    log_variance_a,
+    log_tau_a_fixed,
+    log_variance_m,
+    log_tau_m_fixed,
+    threshold=100000000.0,
+    calculate_posterior=False,
+    truncate_freq=True,
+):
+    # Just delegates to the existing function, but taus are constants
+    return tmac_evidence_and_posterior(
+        r,
+        fourier_r,
+        log_variance_r_noise,
+        g,
+        fourier_g,
+        log_variance_g_noise,
+        log_variance_a,
+        log_tau_a_fixed,
+        log_variance_m,
+        log_tau_m_fixed,
+        threshold=threshold,
+        calculate_posterior=calculate_posterior,
+        truncate_freq=truncate_freq,
+    )
